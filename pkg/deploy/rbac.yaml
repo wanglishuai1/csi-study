@@ -1,0 +1,51 @@
+apiVersion: v1
+kind: ServiceAccount # 创建一个 ServiceAccount（服务账号）
+metadata:
+  name: mycsi-sa # 指定名称 mycsi-sa 与驱动中的一致
+  namespace: mycsi #  指定命名空间  与驱动中的一致
+
+---
+
+kind: ClusterRole # 创建一个 ClusterRole（集群角色）
+apiVersion: rbac.authorization.k8s.io/v1 # 指定 API 版本
+metadata:
+  name: mycsi-role
+rules:
+  - apiGroups: [ "" ]
+    resources: [ "persistentvolumes" ] # 指定资源 persistentvolumes 简称 pv，意思是持久卷
+    verbs: [ "get", "list", "watch", "create", "delete" ]
+  - apiGroups: [ "" ]
+    resources: [ "persistentvolumeclaims" ] # 指定资源 persistentvolumeclaims 简称 pvc，意思是持久卷声明
+    verbs: [ "get", "list", "watch", "update" ]
+  - apiGroups: [ "storage.k8s.io" ]
+    resources: [ "storageclasses" ] # 指定资源 storageclasses 简称 sc 意思是存储类
+    verbs: [ "get", "list", "watch" ]
+  - apiGroups: [ "" ]
+    resources: [ "events" ] # 指定资源 events 简称 ev 意思是事件
+    verbs: [ "get", "list", "watch", "create", "update", "patch" ]
+  - apiGroups: [ "storage.k8s.io" ]
+    resources: [ "csinodes" ] # 指定资源 csinodes 简称 csi 意思是 CSI 节点
+    verbs: [ "get", "list", "watch" ]
+  - apiGroups: [ "" ]
+    resources: [ "nodes" ] # 指定资源 nodes 简称 node 意思是节点
+    verbs: [ "get", "list", "watch" ]
+  - apiGroups: [ "coordination.k8s.io" ]
+    resources: [ "leases" ] # 指定资源 leases 简称 lease 意思是租约
+    verbs: [ "get", "list", "watch", "create", "update", "patch" ]
+  - apiGroups: [ "" ]
+    resources: [ "secrets" ] # 指定资源 secrets 简称 secret 意思是秘钥
+    verbs: [ "get" ]
+---
+
+kind: ClusterRoleBinding # 创建一个 ClusterRoleBinding（集群角色绑定）
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mycsi-role-binding # 指定名称 mycsi-role-binding
+subjects: #   指定绑定的对象
+  - kind: ServiceAccount # 指定绑定的对象类型为 ServiceAccount
+    name: mycsi-sa # 指定绑定的对象名称为 mycsi-sa
+    namespace: mycsi #  指定命名空间  与驱动中的一致
+roleRef: # 指定绑定的角色
+  kind: ClusterRole # 指定绑定的角色类型为 ClusterRole
+  name: mycsi-role # 指定绑定的角色名称为 mycsi-role
+  apiGroup: rbac.authorization.k8s.io # 指定绑定的角色 API 组为 rbac.authorization.k8s.io

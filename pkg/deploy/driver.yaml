@@ -1,0 +1,119 @@
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: mycs  # 驱动名称
+  namespace: mycsi # 驱动所在的命名空间
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mycsi-driver
+  template:
+    metadata:
+      labels:
+        app: mycsi-driver
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: dsjs2 # 指定节点
+      serviceAccountName: mycsi-sa # 指定 ServiceAccount 名称
+      containers:
+        - name: mycsi-driver # 驱动名称
+          image: alpine:3.12 # 驱动镜像就是把service和bootstrap以及main编译为一个可执行文件/镜像
+          imagePullPolicy: "IfNotPresent"
+          workingDir: "/app"
+          command: ["./mycsi"]
+          args:
+            - --nodeid=$(KUBE_NODE_NAME) # 传入节点名称
+          env:
+            - name: KUBE_NODE_NAME # 指定节点名称
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName # 从节点的 spec.nodeName 字段获取节点名称
+          securityContext: # 指定安全上下文
+            privileged: true # 指定为特权容器
+            capabilities: # 指定容器的能力
+              add: [ "SYS_ADMIN" ] # 添加 SYS_ADMIN 能力
+          volumeMounts:
+            - name: kubelet-dir # 挂载 kubelet 目录
+              mountPath: /var/lib/kubelet
+              mountPropagation: "Bidirectional" # 指定挂载传播方式 Bidirectional 双向
+            - name: socket-dir # 挂载 socket 目录
+              mountPath: /csi
+            - name: csiapp # 挂载 csiapp 目录
+              mountPath: /app
+        - name: node-driver-registrar # 驱动注册器 用于注册驱动
+          # 使用 hub.docker.com  原有地址 需要科学
+          image: projectaccuknox/node-driver-registrar:v2.5.1-eks-1-24-2
+          imagePullPolicy: "IfNotPresent"
+          args:
+            - --csi-address=/csi/csi.sock
+            - --kubelet-registration-path=$(DRIVER_REG_SOCK_PATH)
+            - --v=2
+          env:
+            - name: DRIVER_REG_SOCK_PATH # 指定注册路径 与 kubelet 中的一致
+              value: /var/lib/kubelet/plugins/mycsi/csi.sock
+            - name: KUBE_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+            - name: registration-dir
+              mountPath: /registration
+        #livenessprobe
+        - name: liveness-probe # 驱动健康检查 用于检查驱动是否正常
+          image: projectaccuknox/livenessprobe:v2.7.0-eks-1-24-2
+          imagePullPolicy: "IfNotPresent"
+          args:
+            - --csi-address=/csi/csi.sock
+            - --probe-timeout=3s
+            - --health-port=29653
+            - --v=2
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+        #csi-provisione
+        - name: csi-provisioner # 驱动控制器 用于创建删除卷
+          image: projectaccuknox/external-provisioner:v3.3.0-eks-1-24-2
+          args:
+            - "-v=2"
+            - "--csi-address=$(ADDRESS)"
+            - "--leader-election"
+            - "--leader-election-namespace=kube-system"
+            - "--extra-create-metadata=true"
+          env:
+            - name: ADDRESS
+              value: unix:///csi/csi.sock
+          imagePullPolicy: "IfNotPresent"
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+        - name: csi-attacher # 驱动控制器 用于挂载卷 与 csi-provisioner 一致
+          image: longhornio/csi-attacher:v3.4.0
+          args:
+            - "--v=2"
+            - "--csi-address=$(ADDRESS)"
+          env:
+            - name: ADDRESS
+              value: /csi/csi.sock
+          imagePullPolicy: "IfNotPresent"
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+      volumes:
+        - name: kubelet-dir
+          hostPath:
+            path: /var/lib/kubelet
+            type: Directory
+        - name: socket-dir
+          hostPath:
+            path: /var/lib/kubelet/plugins/mycsi/
+            type: DirectoryOrCreate
+        - name: registration-dir
+          hostPath:
+            path: /var/lib/kubelet/plugins_registry/
+            type: Directory
+        - name: csiapp
+          hostPath:
+            path: /home/shenyi/csi
